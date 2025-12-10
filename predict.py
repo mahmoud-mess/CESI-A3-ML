@@ -196,9 +196,9 @@ def predict_and_explain():
     # Création d'un DF pour afficher les top features
     feature_importance = pd.DataFrame(list(zip(model_columns, vals)), columns=['Feature', 'SHAP_Value'])
     feature_importance['Abs_Value'] = feature_importance['SHAP_Value'].abs()
-    feature_importance = feature_importance.sort_values(by='Abs_Value', ascending=False).head(5)
+    feature_importance = feature_importance.sort_values(by='Abs_Value', ascending=False).head(7)
     
-    print("\n--- POURQUOI CE RÉSULTAT ? (Top 5 Facteurs) ---")
+    print("\n--- POURQUOI CE RÉSULTAT ? (Top 7 Facteurs) ---")
     print("Une valeur positive (+) augmente le risque de départ.")
     print("Une valeur négative (-) réduit le risque (fidélise).")
     print("-" * 60)
