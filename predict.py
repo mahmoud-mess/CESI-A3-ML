@@ -149,14 +149,33 @@ def prepare_input_dataframe(user_input, model_columns):
     
     return df
 
+def list_and_select_model():
+    files = [f for f in os.listdir(MODEL_DIR) if f.endswith('.pkl') and f not in ['columns.pkl', 'encoders.pkl']]
+    if not files:
+        print(f"Aucun modèle trouvé dans {MODEL_DIR}. Veuillez lancer train_model.py.")
+        sys.exit(1)
+        
+    print("\n--- CHOIX DU MODÈLE ---")
+    files.sort()
+    for i, f in enumerate(files):
+        print(f"{i+1}. {f}")
+        
+    while True:
+        choice = input(f"Votre choix (1-{len(files)}) : ")
+        if choice.isdigit() and 1 <= int(choice) <= len(files):
+            return os.path.join(MODEL_DIR, files[int(choice)-1])
+        print("Choix invalide.")
+
 def predict_and_explain():
-    # 1. Chargement
-    print("Chargement du modèle...")
+    # 1. Sélection et Chargement
+    model_path = list_and_select_model()
+    print(f"Chargement du modèle : {model_path}...")
+    
     try:
-        model = joblib.load(MODEL_PATH)
+        model = joblib.load(model_path)
         model_columns = joblib.load(COLUMNS_PATH)
     except FileNotFoundError:
-        print("Erreur : Modèle non trouvé. Avez-vous lancé train_model.py ?")
+        print("Erreur : Fichiers manquants (modèle ou columns.pkl).")
         sys.exit(1)
         
     # 2. Saisie utilisateur
@@ -166,7 +185,12 @@ def predict_and_explain():
     # 3. Prédiction
     print("\n--- Analyse en cours... ---")
     prediction = model.predict(input_df)[0]
-    probability = model.predict_proba(input_df)[0][1]
+    
+    # Gestion proba (certains modèles comme SVM n'ont pas predict_proba par défaut, mais ici on a LogReg/RF/XGB/NB qui l'ont)
+    if hasattr(model, "predict_proba"):
+        probability = model.predict_proba(input_df)[0][1]
+    else:
+        probability = 0.5 # Fallback ou 1.0/0.0 selon la prédiction
     
     print(f"\nRésultat : {'⚠️ RISQUE DE DÉPART (Oui)' if prediction == 1 else '✅ FIDÉLISATION PROBABLE (Non)'}")
     print(f"Probabilité de départ estimée : {probability:.1%}")
@@ -174,45 +198,128 @@ def predict_and_explain():
     # 4. Explication SHAP
     print("\nCalcul des facteurs d'influence (SHAP values)...")
     
-    # On utilise TreeExplainer car c'est un RandomForest
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer.shap_values(input_df)
+    # Gestion Pipeline
+    estimator = model
+    explainer_input = input_df
     
-    # Gestion robuste du format de sortie SHAP
-    if isinstance(shap_values, list):
-        # Cas classique : liste de arrays [class0_vals, class1_vals]
-        if len(shap_values) > 1:
-            vals = shap_values[1][0]
+    if hasattr(model, 'named_steps'):
+        # C'est un pipeline
+        estimator = model.steps[-1][1]
+        preprocessor = model.steps[:-1] # Tout sauf le dernier
+        
+        # On transforme l'entrée pour SHAP (car l'explainer doit voir les données scalées)
+        # Attention: Pipeline slice returns a Pipeline, we can fit_transform or just transform if already fitted
+        # Le modèle global est déjà fitté, donc les steps aussi.
+        # On applique les transformations séquentiellement
+        for name, step in preprocessor:
+             if hasattr(step, 'transform'):
+                explainer_input = step.transform(explainer_input)
+    
+    # Détection du type de modèle pour l'explainer
+    class_name = estimator.__class__.__name__
+    explainer = None
+    shap_values_obj = None  # Initialisation pour éviter UnboundLocalError
+    
+    # Background dataset nécessaire pour Linear et Kernel
+    # On charge un petit échantillon et on le transforme de la même façon si pipeline
+    try:
+        if os.path.exists(DATA_FILE):
+             # Chargement partiel pour la baseline
+             df_bg = pd.read_csv(DATA_FILE).sample(100, random_state=42)
+             # Ici c'est compliqué car on a besoin que df_bg ait les mêmes colonnes que input_df (one-hot encoded)
+             # Or DATA_FILE est brut ou processed? DATA_FILE est "processed_data.csv" qui est déjà clean mais pas one-hot pour l'affichage?
+             # Ah, DATA_FILE a déjà les features numériques/catégorielles.
+             # Si processed_data.csv est utilisé dans train(), il est transformé via get_dummies.
+             # On ne peut pas facilement reproduire le get_dummies ici sans re-implémenter la logique de train().
+             # Simplification: Background de zéros pour SHAP Linear
+             background = pd.DataFrame(0, index=np.arange(10), columns=model_columns)
+             
+             # Si pipeline, on transforme le background
+             if hasattr(model, 'named_steps'):
+                 for name, step in model.steps[:-1]:
+                     if hasattr(step, 'transform'):
+                         background = step.transform(background)
         else:
-             # Cas rare où une seule classe est retournée
-            vals = shap_values[0][0]
-    else:
-        # Cas array numpy : (n_samples, n_features, n_classes) ou (n_samples, n_features)
-        if len(shap_values.shape) == 3:
-            vals = shap_values[0, :, 1] # Échantillon 0, toutes features, Classe 1
-        else:
-            vals = shap_values[0] # Binaire implicite
+             background = pd.DataFrame(0, index=np.arange(10), columns=model_columns)
+             if hasattr(model, 'named_steps'):
+                 for name, step in model.steps[:-1]:
+                     if hasattr(step, 'transform'):
+                         background = step.transform(background)
+    except:
+        background = pd.DataFrame(0, index=np.arange(10), columns=model_columns)
 
-    # Création d'un DF pour afficher les top features
-    feature_importance = pd.DataFrame(list(zip(model_columns, vals)), columns=['Feature', 'SHAP_Value'])
-    feature_importance['Abs_Value'] = feature_importance['SHAP_Value'].abs()
-    feature_importance = feature_importance.sort_values(by='Abs_Value', ascending=False).head(7)
-    
-    print("\n--- POURQUOI CE RÉSULTAT ? (Top 7 Facteurs) ---")
-    print("Une valeur positive (+) augmente le risque de départ.")
-    print("Une valeur négative (-) réduit le risque (fidélise).")
-    print("-" * 60)
-    
-    for index, row in feature_importance.iterrows():
-        feature = row['Feature']
-        shap_val = row['SHAP_Value']
-        # Récupérer la valeur saisie pour le contexte
-        user_val = input_df[feature].values[0]
+    if class_name in ['RandomForestClassifier', 'XGBClassifier', 'GradientBoostingClassifier']:
+        explainer = shap.TreeExplainer(estimator)
+        # TreeExplainer gère tout seul ou nécessite data selon le modèle (sklearn RF a besoin que d'interne souvent, XGB aussi)
+        shap_values_obj = explainer(explainer_input) # Nouvelle API
+        shap_values = shap_values_obj.values
         
-        direction = "Augmente le risque 🔴" if shap_val > 0 else "Réduit le risque 🟢"
-        print(f"{feature:<25} : {user_val:>10.2f}  | Impact: {shap_val:>6.2f} ({direction})")
+    elif class_name in ['LogisticRegression']:
+        # LinearExplainer a besoin d'un masker (background data)
+        explainer = shap.LinearExplainer(estimator, background)
+        shap_values_obj = explainer(explainer_input)
+        shap_values = shap_values_obj.values
         
-    print("-" * 60)
+    else:
+        # Fallback (Naive Bayes, etc.) -> KernelExplainer (lent mais générique)
+        # Ou on skip si c'est trop compliqué
+        print(f"Modèle {class_name} : Utilisation de KernelExplainer (peut être lent)...")
+        try:
+             # KernelExplainer a besoin de la fonction de prédiction de proba
+             # Si Pipeline, attention: estimator.predict_proba attend input scalé
+             # Si on passe estimator.predict_proba, SHAP passera des inputs perturbés "scalés" (basé sur background scalé)
+             predict_fn = estimator.predict_proba
+             explainer = shap.KernelExplainer(predict_fn, background)
+             shap_values = explainer.shap_values(explainer_input)
+             # Kernel retourne souvent une liste pour classification
+        except Exception as e:
+             print(f"Impossible de calculer SHAP pour ce modèle : {e}")
+             shap_values = None
+
+    if shap_values is not None:
+        # Standardisation des dimensions de shap_values
+        vals = None
+        
+        # Si c'est un objet Explanation (nouvelle API)
+        if shap_values_obj is not None and hasattr(shap_values_obj, "shape"): # C'est un objet Explanation ou array
+             if len(shap_values.shape) == 2: # (n_samples, n_features) -> cas XGBoost binaire output margin parfois, ou LogReg
+                  vals = shap_values[0]
+             elif len(shap_values.shape) == 3: # (n_samples, n_features, n_classes)
+                  vals = shap_values[0, :, 1] # Classe 1
+        
+        # Si c'est l'ancienne API (liste de arrays)
+        if vals is None and isinstance(shap_values, list):
+            if len(shap_values) > 1:
+                vals = shap_values[1][0] # Classe 1
+            else:
+                 vals = shap_values[0][0] # Cas rare
+        elif vals is None and isinstance(shap_values, np.ndarray):
+             if len(shap_values.shape) == 2:
+                  vals = shap_values[0]
+        
+        # Affichage
+        if vals is not None:
+            feature_importance = pd.DataFrame(list(zip(model_columns, vals)), columns=['Feature', 'SHAP_Value'])
+            feature_importance['Abs_Value'] = feature_importance['SHAP_Value'].abs()
+            feature_importance = feature_importance.sort_values(by='Abs_Value', ascending=False).head(7)
+            
+            print("\n--- POURQUOI CE RÉSULTAT ? (Top 7 Facteurs) ---")
+            print("Une valeur positive (+) augmente le risque de départ.")
+            print("Une valeur négative (-) réduit le risque (fidélise).")
+            print("-" * 60)
+            
+            for index, row in feature_importance.iterrows():
+                feature = row['Feature']
+                shap_val = row['SHAP_Value']
+                user_val = input_df[feature].values[0]
+                
+                direction = "Augmente le risque 🔴" if shap_val > 0 else "Réduit le risque 🟢"
+                print(f"{feature:<25} : {user_val:>10.2f}  | Impact: {shap_val:>6.2f} ({direction})")
+            print("-" * 60)
+        else:
+             print("Format SHAP non reconnu, impossible d'afficher les détails.")
+    else:
+        print("Pas d'explication détaillée disponible pour ce modèle.")
 
 if __name__ == "__main__":
     predict_and_explain()
