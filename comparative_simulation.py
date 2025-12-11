@@ -123,15 +123,25 @@ def run_simulation():
     # A. Stratification des Risques (Low/Medium/High)
     plt.subplot(2, 2, 1)
     
-    # Création des buckets
+    # Création des buckets dynamiques selon le seuil
     buckets = pd.DataFrame()
     for col in results.columns:
-        low = (results[col] < 0.3).mean() * 100
-        medium = ((results[col] >= 0.3) & (results[col] < 0.7)).mean() * 100
-        high = (results[col] >= 0.7).mean() * 100
-        buckets[col] = [low, medium, high]
+        thresh = 0.40 if ('rf' in col.lower() or 'random' in col.lower()) else 0.50
+        
+        high_cut = thresh
+        med_cut = max(0.0, thresh - 0.2)
+        
+        high_val = (results[col] >= high_cut).mean() * 100
+        med_val = ((results[col] >= med_cut) & (results[col] < high_cut)).mean() * 100
+        low_val = (results[col] < med_cut).mean() * 100
+        
+        buckets[col] = [low_val, med_val, high_val]
     
-    buckets.index = ['Faible (<30%)', 'Moyen (30-70%)', 'Élevé (>70%)']
+    buckets.index = [
+        'Faible (<20% RF / <30% Autres)', 
+        'Moyen (20-40% RF / 30-50% Autres)', 
+        'Élevé (>40% RF / >50% Autres)'
+    ]
     bucket_data = buckets.T.reset_index().melt(id_vars='index')
     bucket_data.columns = ['Modèle', 'Niveau de Risque', 'Pourcentage']
     
@@ -147,7 +157,7 @@ def run_simulation():
     plt.ylabel("Pourcentage des employés (%)")
     plt.xlabel("")
     plt.xticks(rotation=45)
-    plt.legend(title="Niveau de Risque", loc='upper left', bbox_to_anchor=(1, 1))
+    plt.legend(title="Niveau de Risque / Seuils", loc='upper left', bbox_to_anchor=(1, 1))
     
     # B. Matrice de Consensus
     plt.subplot(2, 2, 2)
@@ -185,9 +195,17 @@ def run_simulation():
     plt.legend()
     plt.grid(True, alpha=0.2)
 
-    # D. Volume d'Alertes (>50%)
+    # D. Volume d'Alertes (> Seuil)
     plt.subplot(2, 2, 4)
-    alerts = (results > 0.5).sum()
+    
+    alerts = pd.Series(dtype=int)
+    thresholds_desc = []
+    
+    for col in results.columns:
+        thresh = 0.40 if ('rf' in col.lower() or 'random' in col.lower()) else 0.50
+        alerts[col] = (results[col] > thresh).sum()
+        thresholds_desc.append(f"{col}: >{thresh}")
+        
     alert_df = pd.DataFrame({'Modèle': alerts.index, 'Alertes': alerts.values})
     
     # Fix Warning: assign x to hue implicitly via palette usage or proper mapping
@@ -200,18 +218,18 @@ def run_simulation():
                          ha = 'center', va = 'bottom', xytext = (0, 5), 
                          textcoords = 'offset points')
                          
-    plt.title(f"Volume d'Alertes Actives (Seuil > 50%) sur {n_samples} employés", fontsize=14)
+    plt.title(f"Volume d'Alertes Actives (RF > 0.4, Autres > 0.5)", fontsize=14)
     plt.ylabel("Nombre d'employés flaggués")
     plt.xlabel("")
     plt.xticks(rotation=45)
-    plt.ylim(0, alerts.max() * 1.2) # Marge pour le texte
+    plt.ylim(0, alerts.max() * 1.2 if not alerts.empty and alerts.max() > 0 else 10) 
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Marge pour le titre principal
     plt.savefig(OUTPUT_IMAGE, dpi=300)
     print(f"Rapport sauvegardé : {OUTPUT_IMAGE}")
     
     # Résumé texte
-    print("\n--- RÉSUMÉ DES ALERTES ---")
+    print("\n--- RÉSUMÉ DES ALERTES (Seuils Adaptatifs) ---")
     print(alerts)
     print("-" * 30)
 
