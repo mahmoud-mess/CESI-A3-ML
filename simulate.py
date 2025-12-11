@@ -140,15 +140,6 @@ def simulate_and_visualize():
             X_sim['YearsAtCompany'], 
             X_sim['MeanWorkingHours'], 
             c=probabilities, 
-            cmap='RdYlGn', # Rouge -> Vert (Att: Risk high = bad = red)
-            # wait, RdYlGn : Red(low) -> Green(high).
-            # Nous on veut Vert(low risk) -> Rouge(high risk).
-            # Donc RdYlGn_r (Red Yellow Green Reversed) ?
-            # 0 (Low risk) -> Green. 1 (High risk) -> Red.
-            # RdYlGn : 0=Rouge, 1=Vert.
-            # Donc on veut RdYlGn inversé: RdYlGn_r.
-            # (Note: dans le code précédent c'était RdYlGn_r et je vois "Vert -> Rouge" en comm)
-            # On garde RdYlGn_r
             cmap='RdYlGn_r', 
             s=100, 
             edgecolors='grey',
