@@ -1,19 +1,18 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "api/index.py",
-      "use": "@vercel/python"
+  "functions": {
+    "api/index.py": {
+      "runtime": "python3.9"
     },
-    {
-      "src": "api/models.py",
-      "use": "@vercel/python"
+    "api/models.py": {
+      "runtime": "python3.9"
     },
-    {
-      "src": "api/predict.py",
-      "use": "@vercel/python"
+    "api/predict.py": {
+      "runtime": "python3.9",
+      "maxDuration": 30,
+      "memory": 1024
     }
-  ],
+  },
   "routes": [
     {
       "src": "/api/predict",
@@ -32,12 +31,6 @@
       "dest": "/api/index.py"
     }
   ],
-  "functions": {
-    "api/predict.py": {
-      "maxDuration": 30,
-      "memory": 1024
-    }
-  },
   "headers": [
     {
       "source": "/api/(.*)",
