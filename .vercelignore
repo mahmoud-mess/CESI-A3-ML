@@ -1,0 +1,31 @@
+# Fichiers de donnees volumineux (pas necessaires pour l'API)
+*.csv
+*.ipynb
+
+# Images
+*.png
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Git
+.git/
+.gitignore
+
+# Fichiers locaux
+.env
+.env.local
+.env.example
+
+# Scripts ML non necessaires pour l'API
+train_model.py
+process_data.py
+predict.py
+simulate.py
+stress_test_simulation.py
+comparative_simulation.py
+
+# Dossiers non necessaires
+shut up nerd/

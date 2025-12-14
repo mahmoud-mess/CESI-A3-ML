@@ -1,0 +1,7 @@
+# ML & Data (versions compatibles Vercel + Modeles)
+# IMPORTANT: Les modeles ont ete entraines avec sklearn 1.7.2
+# On utilise une version proche pour compatibilite
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+joblib>=1.3.0
