@@ -2,22 +2,50 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/*.py",
+      "src": "api/index.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/models.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/predict.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "/api/$1.py"
+      "src": "/api/predict",
+      "dest": "/api/predict.py"
+    },
+    {
+      "src": "/api/models",
+      "dest": "/api/models.py"
     },
     {
       "src": "/api",
       "dest": "/api/index.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/api/index.py"
     }
   ],
-  "env": {
-    "API_KEY": "@api_key"
-  }
+  "functions": {
+    "api/predict.py": {
+      "maxDuration": 30,
+      "memory": 1024
+    }
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "X-API-Key, Content-Type" }
+      ]
+    }
+  ]
 }
-
