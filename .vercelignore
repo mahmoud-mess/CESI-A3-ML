@@ -22,7 +22,7 @@ __pycache__/
 # Scripts ML non necessaires pour l'API
 train_model.py
 process_data.py
-predict.py
+/predict.py
 simulate.py
 stress_test_simulation.py
 comparative_simulation.py
