@@ -1,8 +1,6 @@
 {
   "version": 2,
   "functions": {
-    "api/index.py": {},
-    "api/models.py": {},
     "api/predict.py": {
       "maxDuration": 30,
       "memory": 1024
